@@ -21,7 +21,7 @@ from ..metrics.scorer import check_scoring
 from .base import SelectorMixin
 
 
-def _rfe_single_fit(rfe, estimator, X, y, train, test, scorer):
+def _rfe_single_fit(rfe, estimator, X, y, train, test, scorer, **fit_params):
     """
     Return the score for a fit across one fold.
     """
@@ -29,7 +29,8 @@ def _rfe_single_fit(rfe, estimator, X, y, train, test, scorer):
     X_test, y_test = _safe_split(estimator, X, y, test, train)
     return rfe._fit(
         X_train, y_train, lambda estimator, features:
-        _score(estimator, X_test[:, features], y_test, scorer)).scores_
+        _score(estimator, X_test[:, features], y_test, scorer),
+        **fit_params).scores_
 
 
 class RFE(BaseEstimator, MetaEstimatorMixin, SelectorMixin):
@@ -124,7 +125,7 @@ class RFE(BaseEstimator, MetaEstimatorMixin, SelectorMixin):
     def _estimator_type(self):
         return self.estimator._estimator_type
 
-    def fit(self, X, y):
+    def fit(self, X, y, **fit_params):
         """Fit the RFE model and then the underlying estimator on the selected
            features.
 
@@ -135,10 +136,12 @@ class RFE(BaseEstimator, MetaEstimatorMixin, SelectorMixin):
 
         y : array-like, shape = [n_samples]
             The target values.
-        """
-        return self._fit(X, y)
 
-    def _fit(self, X, y, step_score=None):
+        **fit_params : Other estimator specific parameters
+        """
+        return self._fit(X, y, **fit_params)
+
+    def _fit(self, X, y, step_score=None, **fit_params):
         # Parameter step_score controls the calculation of self.scores_
         # step_score is not exposed to users
         # and is used when implementing RFECV
@@ -175,7 +178,7 @@ class RFE(BaseEstimator, MetaEstimatorMixin, SelectorMixin):
             if self.verbose > 0:
                 print("Fitting estimator with %d features." % np.sum(support_))
 
-            estimator.fit(X[:, features], y)
+            estimator.fit(X[:, features], y, **fit_params)
 
             # Get coefs
             if hasattr(estimator, 'coef_'):
@@ -210,7 +213,7 @@ class RFE(BaseEstimator, MetaEstimatorMixin, SelectorMixin):
         # Set final attributes
         features = np.arange(n_features)[support_]
         self.estimator_ = clone(self.estimator)
-        self.estimator_.fit(X[:, features], y)
+        self.estimator_.fit(X[:, features], y, **fit_params)
 
         # Compute step score when only n_features_to_select features left
         if step_score:
@@ -390,7 +393,7 @@ class RFECV(RFE, MetaEstimatorMixin):
         self.verbose = verbose
         self.n_jobs = n_jobs
 
-    def fit(self, X, y, groups=None):
+    def fit(self, X, y, groups=None, **fit_params):
         """Fit the RFE model and automatically tune the number of selected
            features.
 
@@ -407,6 +410,8 @@ class RFECV(RFE, MetaEstimatorMixin):
         groups : array-like, shape = [n_samples], optional
             Group labels for the samples used while splitting the dataset into
             train/test set.
+
+        **fit_params : Other estimator specific parameters
         """
         X, y = check_X_y(X, y, "csr")
 
@@ -445,7 +450,7 @@ class RFECV(RFE, MetaEstimatorMixin):
             parallel, func, = Parallel(n_jobs=self.n_jobs), delayed(_rfe_single_fit)
 
         scores = parallel(
-            func(rfe, self.estimator, X, y, train, test, scorer)
+            func(rfe, self.estimator, X, y, train, test, scorer, **fit_params)
             for train, test in cv.split(X, y, groups))
 
         scores = np.sum(scores, axis=0)
@@ -458,14 +463,14 @@ class RFECV(RFE, MetaEstimatorMixin):
                   n_features_to_select=n_features_to_select, step=self.step,
                   verbose=self.verbose)
 
-        rfe.fit(X, y)
+        rfe.fit(X, y, **fit_params)
 
         # Set final attributes
         self.support_ = rfe.support_
         self.n_features_ = rfe.n_features_
         self.ranking_ = rfe.ranking_
         self.estimator_ = clone(self.estimator)
-        self.estimator_.fit(self.transform(X), y)
+        self.estimator_.fit(self.transform(X), y, **fit_params)
 
         # Fixing a normalization error, n is equal to get_n_splits(X, y) - 1
         # here, the scores are normalized by get_n_splits(X, y)
