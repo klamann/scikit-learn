@@ -414,7 +414,7 @@ class OneVsRestClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin):
         return self.estimators_[0]
 
 
-def _fit_ovo_binary(estimator, X, y, i, j, **fit_params):
+def _fit_ovo_binary(estimator, X, y, i, j, sample_weight=None, **fit_params):
     """Fit a single binary estimator (one-vs-one)."""
     cond = np.logical_or(y == i, y == j)
     y = y[cond]
@@ -422,9 +422,11 @@ def _fit_ovo_binary(estimator, X, y, i, j, **fit_params):
     y_binary[y == i] = 0
     y_binary[y == j] = 1
     indcond = np.arange(X.shape[0])[cond]
-    return _fit_binary(estimator,
-                       _safe_split(estimator, X, None, indices=indcond)[0],
-                       y_binary, classes=[i, j], **fit_params), indcond
+    X = _safe_split(estimator, X, None, indices=indcond)[0]
+    if sample_weight is not None:
+        sample_weight = _safe_split(estimator, sample_weight, None, indices=indcond)[0]
+        fit_params['sample_weight'] = sample_weight
+    return _fit_binary(estimator, X, y_binary, classes=[i, j], **fit_params), indcond
 
 
 def _partial_fit_ovo_binary(estimator, X, y, i, j, **fit_params):
