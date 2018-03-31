@@ -41,6 +41,8 @@ perm = rng.permutation(iris.target.size)
 iris.data = iris.data[perm]
 iris.target = iris.target[perm]
 n_classes = 3
+sample_weight = np.zeros(iris.target.shape[0])
+sample_weight[:10] = 1.0
 
 
 def test_ovr_exceptions():
@@ -305,6 +307,14 @@ def test_ovr_fit_predict_svc():
     assert_greater(ovr.score(iris.data, iris.target), .9)
 
 
+def test_ovr_fit_sample_weights():
+    ovr = OneVsRestClassifier(svm.SVC(gamma="scale"))
+    p1 = ovr.fit(iris.data, iris.target).predict(iris.data)
+    p2 = ovr.fit(iris.data, iris.target, sample_weight=sample_weight
+                 ).predict(iris.data)
+    assert_true(np.any(np.not_equal(p1, p2)))
+
+
 def test_ovr_multilabel_dataset():
     base_clf = MultinomialNB(alpha=1)
     for au, prec, recall in zip((True, False), (0.51, 0.66), (0.51, 0.80)):
@@ -485,6 +495,14 @@ def test_ovo_fit_on_list():
     prediction_from_list = ovo.fit(iris_data_list,
                                    list(iris.target)).predict(iris_data_list)
     assert_array_equal(prediction_from_array, prediction_from_list)
+
+
+def test_ovo_fit_sample_weights():
+    ovo = OneVsOneClassifier(svm.SVC(gamma="scale"))
+    p1 = ovo.fit(iris.data, iris.target).predict(iris.data)
+    p2 = ovo.fit(iris.data, iris.target, sample_weight=sample_weight
+                 ).predict(iris.data)
+    assert_true(np.any(np.not_equal(p1, p2)))
 
 
 def test_ovo_fit_predict():
@@ -689,6 +707,15 @@ def test_ecoc_fit_predict():
     ecoc = OutputCodeClassifier(MultinomialNB(), code_size=2, random_state=0)
     ecoc.fit(iris.data, iris.target).predict(iris.data)
     assert_equal(len(ecoc.estimators_), n_classes * 2)
+
+
+def test_ecoc_fit_sample_weights():
+    ecoc = OutputCodeClassifier(svm.SVC(gamma="scale"),
+                                code_size=2, random_state=0)
+    p1 = ecoc.fit(iris.data, iris.target).predict(iris.data)
+    p2 = ecoc.fit(iris.data, iris.target, sample_weight=sample_weight
+                  ).predict(iris.data)
+    assert_true(np.any(np.not_equal(p1, p2)))
 
 
 def test_ecoc_gridsearch():
