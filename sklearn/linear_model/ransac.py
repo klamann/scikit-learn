@@ -223,7 +223,7 @@ class RANSACRegressor(BaseEstimator, MetaEstimatorMixin, RegressorMixin):
         self.random_state = random_state
         self.loss = loss
 
-    def fit(self, X, y, sample_weight=None):
+    def fit(self, X, y, sample_weight=None, **fit_params):
         """Fit estimator using RANSAC algorithm.
 
         Parameters
@@ -238,6 +238,8 @@ class RANSACRegressor(BaseEstimator, MetaEstimatorMixin, RegressorMixin):
             Individual weights for each sample
             raises error if sample_weight is passed and base_estimator
             fit method does not support it.
+
+        **fit_params : Other estimator specific parameters
 
         Raises
         ------
@@ -367,10 +369,11 @@ class RANSACRegressor(BaseEstimator, MetaEstimatorMixin, RegressorMixin):
 
             # fit model for current random sample set
             if sample_weight is None:
-                base_estimator.fit(X_subset, y_subset)
+                base_estimator.fit(X_subset, y_subset, **fit_params)
             else:
                 base_estimator.fit(X_subset, y_subset,
-                                   sample_weight=sample_weight[subset_idxs])
+                                   sample_weight=sample_weight[subset_idxs],
+                                   **fit_params)
 
             # check if estimated model is valid
             if (self.is_model_valid is not None and not
@@ -457,7 +460,7 @@ class RANSACRegressor(BaseEstimator, MetaEstimatorMixin, RegressorMixin):
                               ConvergenceWarning)
 
         # estimate final model using all inliers
-        base_estimator.fit(X_inlier_best, y_inlier_best)
+        base_estimator.fit(X_inlier_best, y_inlier_best, **fit_params)
 
         self.estimator_ = base_estimator
         self.inlier_mask_ = inlier_mask_best
