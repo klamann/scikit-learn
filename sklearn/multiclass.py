@@ -63,7 +63,7 @@ __all__ = [
 ]
 
 
-def _fit_binary(estimator, X, y, classes=None):
+def _fit_binary(estimator, X, y, classes=None, **fit_params):
     """Fit a single binary estimator."""
     unique_y = np.unique(y)
     if len(unique_y) == 1:
@@ -77,13 +77,13 @@ def _fit_binary(estimator, X, y, classes=None):
         estimator = _ConstantPredictor().fit(X, unique_y)
     else:
         estimator = clone(estimator)
-        estimator.fit(X, y)
+        estimator.fit(X, y, **fit_params)
     return estimator
 
 
-def _partial_fit_binary(estimator, X, y):
+def _partial_fit_binary(estimator, X, y, **fit_params):
     """Partially fit a single binary estimator."""
-    estimator.partial_fit(X, y, np.array((0, 1)))
+    estimator.partial_fit(X, y, np.array((0, 1)), **fit_params)
     return estimator
 
 
@@ -180,7 +180,7 @@ class OneVsRestClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin):
         self.estimator = estimator
         self.n_jobs = n_jobs
 
-    def fit(self, X, y):
+    def fit(self, X, y, **fit_params):
         """Fit underlying estimators.
 
         Parameters
@@ -191,6 +191,8 @@ class OneVsRestClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin):
         y : (sparse) array-like, shape = [n_samples, ], [n_samples, n_classes]
             Multi-class targets. An indicator matrix turns on multilabel
             classification.
+
+        **fit_params : Other estimator specific parameters
 
         Returns
         -------
@@ -211,13 +213,13 @@ class OneVsRestClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin):
         self.estimators_ = Parallel(n_jobs=self.n_jobs)(delayed(_fit_binary)(
             self.estimator, X, column, classes=[
                 "not %s" % self.label_binarizer_.classes_[i],
-                self.label_binarizer_.classes_[i]])
+                self.label_binarizer_.classes_[i]], **fit_params)
             for i, column in enumerate(columns))
 
         return self
 
     @if_delegate_has_method('estimator')
-    def partial_fit(self, X, y, classes=None):
+    def partial_fit(self, X, y, classes=None, **fit_params):
         """Partially fit underlying estimators
 
         Should be used when memory is inefficient to train all data.
@@ -238,6 +240,8 @@ class OneVsRestClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin):
             target vector of the entire dataset.
             This argument is only required in the first call of partial_fit
             and can be omitted in the subsequent calls.
+
+        **fit_params : Other estimator specific parameters
 
         Returns
         -------
@@ -267,7 +271,7 @@ class OneVsRestClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin):
         columns = (col.toarray().ravel() for col in Y.T)
 
         self.estimators_ = Parallel(n_jobs=self.n_jobs)(
-            delayed(_partial_fit_binary)(estimator, X, column)
+            delayed(_partial_fit_binary)(estimator, X, column, **fit_params)
             for estimator, column in izip(self.estimators_, columns))
 
         return self
@@ -410,7 +414,7 @@ class OneVsRestClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin):
         return self.estimators_[0]
 
 
-def _fit_ovo_binary(estimator, X, y, i, j):
+def _fit_ovo_binary(estimator, X, y, i, j, **fit_params):
     """Fit a single binary estimator (one-vs-one)."""
     cond = np.logical_or(y == i, y == j)
     y = y[cond]
@@ -420,10 +424,10 @@ def _fit_ovo_binary(estimator, X, y, i, j):
     indcond = np.arange(X.shape[0])[cond]
     return _fit_binary(estimator,
                        _safe_split(estimator, X, None, indices=indcond)[0],
-                       y_binary, classes=[i, j]), indcond
+                       y_binary, classes=[i, j], **fit_params), indcond
 
 
-def _partial_fit_ovo_binary(estimator, X, y, i, j):
+def _partial_fit_ovo_binary(estimator, X, y, i, j, **fit_params):
     """Partially fit a single binary estimator(one-vs-one)."""
 
     cond = np.logical_or(y == i, y == j)
@@ -431,7 +435,7 @@ def _partial_fit_ovo_binary(estimator, X, y, i, j):
     if len(y) != 0:
         y_binary = np.zeros_like(y)
         y_binary[y == j] = 1
-        return _partial_fit_binary(estimator, X[cond], y_binary)
+        return _partial_fit_binary(estimator, X[cond], y_binary, **fit_params)
     return estimator
 
 
@@ -475,7 +479,7 @@ class OneVsOneClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin):
         self.estimator = estimator
         self.n_jobs = n_jobs
 
-    def fit(self, X, y):
+    def fit(self, X, y, **fit_params):
         """Fit underlying estimators.
 
         Parameters
@@ -485,6 +489,8 @@ class OneVsOneClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin):
 
         y : array-like, shape = [n_samples]
             Multi-class targets.
+
+        **fit_params : Other estimator specific parameters
 
         Returns
         -------
@@ -500,7 +506,7 @@ class OneVsOneClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin):
         n_classes = self.classes_.shape[0]
         estimators_indices = list(zip(*(Parallel(n_jobs=self.n_jobs)(
             delayed(_fit_ovo_binary)
-            (self.estimator, X, y, self.classes_[i], self.classes_[j])
+            (self.estimator, X, y, self.classes_[i], self.classes_[j], **fit_params)
             for i in range(n_classes) for j in range(i + 1, n_classes)))))
 
         self.estimators_ = estimators_indices[0]
@@ -513,7 +519,7 @@ class OneVsOneClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin):
         return self
 
     @if_delegate_has_method(delegate='estimator')
-    def partial_fit(self, X, y, classes=None):
+    def partial_fit(self, X, y, classes=None, **fit_params):
         """Partially fit underlying estimators
 
         Should be used when memory is inefficient to train all data. Chunks
@@ -536,6 +542,8 @@ class OneVsOneClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin):
             This argument is only required in the first call of partial_fit
             and can be omitted in the subsequent calls.
 
+        **fit_params : Other estimator specific parameters
+
         Returns
         -------
         self
@@ -556,7 +564,7 @@ class OneVsOneClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin):
         self.estimators_ = Parallel(
             n_jobs=self.n_jobs)(
                 delayed(_partial_fit_ovo_binary)(
-                    estimator, X, y, self.classes_[i], self.classes_[j])
+                    estimator, X, y, self.classes_[i], self.classes_[j], **fit_params)
                 for estimator, (i, j) in izip(self.estimators_,
                                               (combinations)))
 
@@ -704,7 +712,7 @@ class OutputCodeClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin):
         self.random_state = random_state
         self.n_jobs = n_jobs
 
-    def fit(self, X, y):
+    def fit(self, X, y, **fit_params):
         """Fit underlying estimators.
 
         Parameters
@@ -714,6 +722,8 @@ class OutputCodeClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin):
 
         y : numpy array of shape [n_samples]
             Multi-class targets.
+
+        **fit_params : Other estimator specific parameters
 
         Returns
         -------
@@ -748,7 +758,7 @@ class OutputCodeClassifier(BaseEstimator, ClassifierMixin, MetaEstimatorMixin):
                       for i in range(X.shape[0])], dtype=np.int)
 
         self.estimators_ = Parallel(n_jobs=self.n_jobs)(
-            delayed(_fit_binary)(self.estimator, X, Y[:, i])
+            delayed(_fit_binary)(self.estimator, X, Y[:, i], **fit_params)
             for i in range(Y.shape[1]))
 
         return self
