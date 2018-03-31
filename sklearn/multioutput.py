@@ -32,32 +32,25 @@ __all__ = ["MultiOutputRegressor", "MultiOutputClassifier",
            "ClassifierChain", "RegressorChain"]
 
 
-def _fit_estimator(estimator, X, y, sample_weight=None):
+def _fit_estimator(estimator, X, y, **fit_params):
     estimator = clone(estimator)
-    if sample_weight is not None:
-        estimator.fit(X, y, sample_weight=sample_weight)
-    else:
-        estimator.fit(X, y)
+    _dict_filter_none_values(fit_params, ['sample_weight'])
+    estimator.fit(X, y, **fit_params)
     return estimator
 
 
-def _partial_fit_estimator(estimator, X, y, classes=None, sample_weight=None,
-                           first_time=True):
+def _partial_fit_estimator(estimator, X, y, first_time=True, **fit_params):
     if first_time:
         estimator = clone(estimator)
-
-    if sample_weight is not None:
-        if classes is not None:
-            estimator.partial_fit(X, y, classes=classes,
-                                  sample_weight=sample_weight)
-        else:
-            estimator.partial_fit(X, y, sample_weight=sample_weight)
-    else:
-        if classes is not None:
-            estimator.partial_fit(X, y, classes=classes)
-        else:
-            estimator.partial_fit(X, y)
+    _dict_filter_none_values(fit_params, ['sample_weight', 'classes'])
+    estimator.partial_fit(X, y, **fit_params)
     return estimator
+
+
+def _dict_filter_none_values(d, keys):
+    for key in keys:
+        if key in d and d[key] is None:
+            del d[key]
 
 
 class MultiOutputEstimator(six.with_metaclass(ABCMeta, BaseEstimator,
@@ -68,7 +61,7 @@ class MultiOutputEstimator(six.with_metaclass(ABCMeta, BaseEstimator,
         self.n_jobs = n_jobs
 
     @if_delegate_has_method('estimator')
-    def partial_fit(self, X, y, classes=None, sample_weight=None):
+    def partial_fit(self, X, y, classes=None, sample_weight=None, **fit_params):
         """Incrementally fit the model to data.
         Fit a separate model for each output variable.
 
@@ -94,6 +87,8 @@ class MultiOutputEstimator(six.with_metaclass(ABCMeta, BaseEstimator,
             Only supported if the underlying regressor supports sample
             weights.
 
+        **fit_params : Other estimator specific parameters
+
         Returns
         -------
         self : object
@@ -117,11 +112,12 @@ class MultiOutputEstimator(six.with_metaclass(ABCMeta, BaseEstimator,
             delayed(_partial_fit_estimator)(
                 self.estimators_[i] if not first_time else self.estimator,
                 X, y[:, i],
-                classes[i] if classes is not None else None,
-                sample_weight, first_time) for i in range(y.shape[1]))
+                classes=classes[i] if classes is not None else None,
+                sample_weight=sample_weight, first_time=first_time,
+                **fit_params) for i in range(y.shape[1]))
         return self
 
-    def fit(self, X, y, sample_weight=None):
+    def fit(self, X, y, sample_weight=None, **fit_params):
         """ Fit the model to data.
         Fit a separate model for each output variable.
 
@@ -138,6 +134,8 @@ class MultiOutputEstimator(six.with_metaclass(ABCMeta, BaseEstimator,
             Sample weights. If None, then samples are equally weighted.
             Only supported if the underlying regressor supports sample
             weights.
+
+        **fit_params : Other estimator specific parameters
 
         Returns
         -------
@@ -165,7 +163,8 @@ class MultiOutputEstimator(six.with_metaclass(ABCMeta, BaseEstimator,
 
         self.estimators_ = Parallel(n_jobs=self.n_jobs)(
             delayed(_fit_estimator)(
-                self.estimator, X, y[:, i], sample_weight)
+                self.estimator, X, y[:, i], sample_weight=sample_weight,
+                **fit_params)
             for i in range(y.shape[1]))
         return self
 
@@ -221,7 +220,7 @@ class MultiOutputRegressor(MultiOutputEstimator, RegressorMixin):
         super(MultiOutputRegressor, self).__init__(estimator, n_jobs)
 
     @if_delegate_has_method('estimator')
-    def partial_fit(self, X, y, sample_weight=None):
+    def partial_fit(self, X, y, sample_weight=None, **fit_params):
         """Incrementally fit the model to data.
         Fit a separate model for each output variable.
 
@@ -238,12 +237,14 @@ class MultiOutputRegressor(MultiOutputEstimator, RegressorMixin):
             Only supported if the underlying regressor supports sample
             weights.
 
+        **fit_params : Other estimator specific parameters
+
         Returns
         -------
         self : object
         """
         super(MultiOutputRegressor, self).partial_fit(
-            X, y, sample_weight=sample_weight)
+            X, y, sample_weight=sample_weight, **fit_params)
 
     def score(self, X, y, sample_weight=None):
         """Returns the coefficient of determination R^2 of the prediction.
@@ -374,7 +375,7 @@ class _BaseChain(six.with_metaclass(ABCMeta, BaseEstimator)):
         self.random_state = random_state
 
     @abstractmethod
-    def fit(self, X, Y):
+    def fit(self, X, Y, **fit_params):
         """Fit the model to data matrix X and targets Y.
 
         Parameters
@@ -383,6 +384,8 @@ class _BaseChain(six.with_metaclass(ABCMeta, BaseEstimator)):
             The input data.
         Y : array-like, shape (n_samples, n_classes)
             The target values.
+
+        **fit_params : Other estimator specific parameters
 
         Returns
         -------
@@ -424,12 +427,12 @@ class _BaseChain(six.with_metaclass(ABCMeta, BaseEstimator)):
 
         for chain_idx, estimator in enumerate(self.estimators_):
             y = Y[:, self.order_[chain_idx]]
-            estimator.fit(X_aug[:, :(X.shape[1] + chain_idx)], y)
+            estimator.fit(X_aug[:, :(X.shape[1] + chain_idx)], y, **fit_params)
             if self.cv is not None and chain_idx < len(self.estimators_) - 1:
                 col_idx = X.shape[1] + chain_idx
                 cv_result = cross_val_predict(
                     self.base_estimator, X_aug[:, :col_idx],
-                    y=y, cv=self.cv)
+                    y=y, cv=self.cv, fit_params=fit_params)
                 if sp.issparse(X_aug):
                     X_aug[:, col_idx] = np.expand_dims(cv_result, 1)
                 else:
@@ -545,7 +548,7 @@ class ClassifierChain(_BaseChain, ClassifierMixin, MetaEstimatorMixin):
 
     """
 
-    def fit(self, X, Y):
+    def fit(self, X, Y, **fit_params):
         """Fit the model to data matrix X and targets Y.
         Parameters
         ----------
@@ -554,11 +557,13 @@ class ClassifierChain(_BaseChain, ClassifierMixin, MetaEstimatorMixin):
         Y : array-like, shape (n_samples, n_classes)
             The target values.
 
+        **fit_params : Other estimator specific parameters
+
         Returns
         -------
         self : object
         """
-        super(ClassifierChain, self).fit(X, Y)
+        super(ClassifierChain, self).fit(X, Y, **fit_params)
         self.classes_ = []
         for chain_idx, estimator in enumerate(self.estimators_):
             self.classes_.append(estimator.classes_)
@@ -689,7 +694,7 @@ class RegressorChain(_BaseChain, RegressorMixin, MetaEstimatorMixin):
         chaining.
 
     """
-    def fit(self, X, Y):
+    def fit(self, X, Y, **fit_params):
         """Fit the model to data matrix X and targets Y.
 
         Parameters
@@ -699,9 +704,11 @@ class RegressorChain(_BaseChain, RegressorMixin, MetaEstimatorMixin):
         Y : array-like, shape (n_samples, n_classes)
             The target values.
 
+        **fit_params : Other estimator specific parameters
+
         Returns
         -------
         self : object
         """
-        super(RegressorChain, self).fit(X, Y)
+        super(RegressorChain, self).fit(X, Y, **fit_params)
         return self
